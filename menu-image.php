@@ -10,7 +10,7 @@ Plugin Name: Menu Image
 Plugin URI: http://html-and-cms.com/plugins/menu-image/
 Description: Provide uploading images to menu item
 Author: Alex Davyskiba aka Zviryatko
-Version: 1.2
+Version: 1.3
 Author URI: http://makeyoulivebetter.org.ua/
 */
 
@@ -46,9 +46,12 @@ function menu_image_nav_menu_manage_columns($columns) {
 add_filter('manage_nav-menus_columns', 'menu_image_nav_menu_manage_columns', 11);
 
 function menu_image_save_post_action($post_id, $post) {
-	if (isset($_POST['menu_item_image_size'][$post_id]) && !empty($_POST['menu_item_image_size'][$post_id])) {
-		update_post_meta($post_id, '_menu_item_image_size', esc_sql($_POST['menu_item_image_size'][$post_id]));
-	}
+  $menu_image_settings = array('menu_item_image_size', 'menu-item-image-title-position');
+  foreach ($menu_image_settings as $setting_name) {
+    if (isset($_POST[$setting_name][$post_id]) && !empty($_POST[$setting_name][$post_id])) {
+      update_post_meta($post_id, "_$setting_name", esc_sql($_POST[$setting_name][$post_id]));
+    }
+  }
 
 	if (!empty($_FILES["menu-item-image_$post_id"]) || !empty($_FILES["menu-item-image_$post_id-hovered"])) {
 		require_once(ABSPATH . "wp-admin" . '/includes/image.php');
@@ -72,10 +75,14 @@ function menu_image_save_post_action($post_id, $post) {
       'post_parent' => $post_id,
     );
     $attachments = get_posts($args);
-    if ($attachments)
-      foreach($attachments as $attachment)
+    if ($attachments) {
+      foreach($attachments as $attachment) {
         wp_delete_attachment($attachment->ID);
-		delete_post_meta('_menu_item_image_size', $post_id);
+      }
+    }
+    foreach ($menu_image_settings as $meta) {
+      delete_post_meta($post_id, "_$meta");
+    }
 	}
 }
 
@@ -140,7 +147,10 @@ class Menu_Image_Walker_Nav_Menu_Edit extends Walker_Nav_Menu_Edit {
 
 		$title = empty($item->label) ? $title : $item->label;
 
-		$image_size = get_post_meta($item_id, '_menu_item_image_size', TRUE);
+    $item_image_size = get_post_meta($item_id, '_menu_item_image_size', TRUE);
+    $image_size = empty($item_image_size) ? 'menu-36x36' : $item_image_size;
+    $title_position = get_post_meta($item->ID, '_menu-item-image-title-position', TRUE);
+    if (!$title_position) $title_position = 'after';
     // second image
     $args = array(
       'post_type' => 'attachment',
@@ -257,6 +267,14 @@ class Menu_Image_Walker_Nav_Menu_Edit extends Walker_Nav_Menu_Edit {
           </label>
           <br />
           <br />
+          <label><?php _e("Title position"); ?>: </label>
+          <?php $positions = array('before', 'hide', 'after'); ?>
+          <?php foreach($positions as $key => $position) : ?>
+            <?php $selected = ($title_position == $position) ? ' checked="checked"' : ''; ?>
+            <label><input type="radio" name="menu-item-image-title-position[<?php echo $item_id; ?>]" value="<?php echo $position; ?>"<?php echo $selected; ?>/> <?php _e(ucfirst($position)); ?></label><?php if(isset($positions[$key+1])) echo " | " ?>
+          <?php endforeach; ?>
+          <br />
+          <br />
           <label><?php _e("Remove both images", 'menu-image'); ?> <input type="checkbox" name="menu_item_remove_image[<?php echo $item_id; ?>]"/></label>
 				<?php endif; ?>
 			</p>
@@ -317,34 +335,49 @@ function menu_image_nav_menu_item_filter($item_output, $item, $depth, $args) {
 	$attributes .= !empty($item->url) ? ' href="' . esc_attr($item->url) . '"' : '';
 
 	$image_size = get_post_meta($item->ID, '_menu_item_image_size', TRUE);
-  $args       = array(
+	$title_position = get_post_meta($item->ID, '_menu-item-image-title-position', TRUE);
+  $classes = $attributes_classes = "menu-image-title-{$title_position}";
+  $image_args       = array(
     'post_parent' => $item->ID,
     'post_type'   => 'attachment',
     'numberposts' => 1,
     'exclude'     => get_post_thumbnail_id($item->ID),
   );
-  $hovered_image  = reset(get_posts($args));
+  $hovered_image  = reset(get_posts($image_args));
   if ($hovered_image) {
     $hover_image_src = wp_get_attachment_image_src($hovered_image->ID, $image_size);
-    $attributes .= ' class="menu-image-hovered"';
+    $attributes_classes .= ' menu-image-hovered';
     $style      = '';
     if (isset($hover_image_src[1]) && isset($hover_image_src[1])) {
       $width    = $hover_image_src[1];
-      $height   = $hover_image_src[2];
+      $height   = $hover_image_src[2] + 1; // +1px because span have small inline space..
       $style   .= " style='width: {$width}px; height: {$height}px;'";
       $attributes .= " style='line-height: {$height}px'";
     }
-    $image    = "<span class='menu-image-hover-wrapper menu-image-wrapper-id-{$item->ID}' $style>";
-    $image   .= get_the_post_thumbnail($item->ID, $image_size, 'class=menu-image');
-    $image   .= wp_get_attachment_image( $hovered_image->ID, $image_size, FALSE, 'class=hovered-image' );
+    $image    = "<span class='menu-image-hover-wrapper'" . $style . ">";
+    $image   .= get_the_post_thumbnail($item->ID, $image_size, "class=menu-image {$classes}");
+    $image   .= wp_get_attachment_image( $hovered_image->ID, $image_size, FALSE, "class=hovered-image {$classes}" );
     $image   .= '</span>';
   } else {
-	  $image    = get_the_post_thumbnail($item->ID, $image_size, 'class=menu-image');
+	  $image    = get_the_post_thumbnail($item->ID, $image_size, "class=menu-image {$classes}");
   }
 
 	$item_output = $args->before;
+  $attributes .= " class='{$attributes_classes}'";
 	$item_output .= '<a' . $attributes . '>';
-	$item_output .= $image . $args->link_before . apply_filters('the_title', $item->title, $item->ID) . $args->link_after;
+	$link         = $args->link_before . apply_filters('the_title', $item->title, $item->ID) . $args->link_after;
+  switch ($title_position) {
+    case 'hide':
+      $item_output .= $image;
+      break;
+    case 'before':
+      $item_output .= $link . $image;
+      break;
+    case 'after':
+    default:
+      $item_output .= $image . $link;
+      break;
+  }
 	$item_output .= '</a>';
 	$item_output .= $args->after;
 	return $item_output;
