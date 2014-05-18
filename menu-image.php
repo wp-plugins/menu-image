@@ -1,7 +1,7 @@
 <?php
 /**
  * @package Menu_Image
- * @version 1.0
+ * @version 2.0
  * @licence GPLv2
  */
 
@@ -41,6 +41,10 @@ class Menu_Image_Plugin {
 		'menu-36x36' => array( 36, 36, false ),
 		'menu-48x48' => array( 48, 48, false ),
 	);
+	/**
+	 * @var array
+	 */
+	private $additionalDisplayableImageExtensions = array('ico');
 
 	public function __construct() {
 		add_action( 'init', array( $this, 'menu_image_init' ) );
@@ -53,7 +57,22 @@ class Menu_Image_Plugin {
 		add_action( 'wp_enqueue_scripts', array( $this, 'menu_image_add_inline_style_action' ) );
 		add_action( 'admin_action_delete-menu-item-image', array( $this, 'menu_image_delete_menu_item_image_action' ) );
 		add_action( 'wp_ajax_set-menu-item-thumbnail', array( $this, 'wp_ajax_set_menu_item_thumbnail' ) );
+		// Add support for additional image types
+		add_filter('file_is_displayable_image', array($this, 'file_is_displayable_image'), 10, 2);
 	}
+
+    /**
+     * Filter adds additional validation for image type
+     *
+     * @param bool $result
+     * @param string $path
+     * @return bool
+     */
+    public function file_is_displayable_image($result, $path) {
+        if ($result) { return true; }
+        $fileExtension = pathinfo($path, PATHINFO_EXTENSION);
+        return  in_array($fileExtension, $this->additionalDisplayableImageExtensions);
+    }
 
 	/**
 	 * Initialization action.
